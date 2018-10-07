@@ -1,0 +1,109 @@
+/** 
+	Based on shadertoy by Josef Spjut: https://www.shadertoy.com/view/MlffRf
+*/
+
+#include <g3dmath.glsl>
+
+uniform sampler2D source;
+uniform float     sigma;
+out Color3        fragColor; 
+
+float rectDist(vec4 rect, vec2 point)
+{
+    // compute the closest distance between a point and a rectangle
+    float dx = max(max(rect.x - point.x, point.x - rect.z), 0.0);
+    float dy = max(max(rect.y - point.y, point.y - rect.w), 0.0);
+    return sqrt(dx*dx + dy*dy);
+}
+
+void main () {
+    // eyetracking slop in degrees
+    float e0 = 1.0;
+    float FOVy = 30.0;
+    
+    // from Trey's document
+    // F = foveal pixel pitch (degrees/pixel)
+    float F = 0.5/60.0;
+    // S = Pixel pitch slope (degrees per pixel per degree of eccentricity)
+    float S = 0.275/60.0;
+    // ec = foveal crossover ~1.8 degrees
+    float ec = 0.5/0.275;
+    
+    // compute tile xy, 4 tilesizes in 4 corners
+    float tilesize = 8.0;
+    if (fragCoord.x > iMouse.x)
+        if (fragCoord.y > iMouse.y)
+            tilesize = 32.0;
+        else
+            tilesize = 16.0;
+    else
+        if (fragCoord.y > iMouse.y)
+            tilesize = 0.9;
+        else
+            tilesize = 8.0;
+    tilesize = 0.9; // fixed tile size
+    vec2 tilexy = round(fragCoord.xy / tilesize)*tilesize;
+    // tile is from tilexy to tilexy + tilesize square
+
+    // compute closest eccentricity (0 = center, 1.0 = height linear)
+    float e = floor(rectDist(vec4(tilexy, tilexy+1.0), iMouse.xy) / tilesize) * tilesize / iResolution.y;
+    
+    // multiply by the field of view (might be wrong mapping)
+    e = e * FOVy;
+    
+    // compute de/dr
+    float dedr = F;
+    if (e > ec) dedr = S * (e - e0);
+    
+    // compute pixels per degree
+    float ppd = 1.0/dedr;
+    
+    // select color
+    int colorID = 6;
+	if (ppd > 60.0) colorID = 0;
+    else if (ppd > 30.0) colorID = 1;
+    else if (ppd > 15.0) colorID = 2;
+    else if (ppd > 7.5) colorID = 3;
+    else if (ppd > 3.75) colorID = 4;
+    else if (ppd > 1.875) colorID = 5;
+    
+    // color mapping
+    vec3 color = vec3(0.0, 0.0, 0.0);
+    switch (colorID) {
+        case 0: color = vec3(1.0, 0.0, 0.0); // red
+        break;
+        case 1: color = vec3(1.0, 1.0, 0.0); // yellow
+        break;
+        case 2: color = vec3(0.0, 1.0, 0.0); // green
+        break;
+        case 3: color = vec3(0.0, 1.0, 1.0); // cyan
+        break;
+        case 4: color = vec3(0.0, 0.0, 1.0); // blue
+        break;
+        case 5: color = vec3(1.0, 0.0, 1.0); // magenta
+        break;
+        default: color = vec3(1.0, 1.0, 1.0); // white
+    };
+       
+	fragColor = vec4(color, 1.0);
+    
+    // color map R alternates, G, B show sample lobe
+    float r = float(colorID % 2);
+    float g = (fragCoord.x - iMouse.x) / iResolution.y / 2.0 + 0.5;
+    float b = (fragCoord.y - iMouse.y) / iResolution.y / 2.0 + 0.5;
+    fragColor = vec4(r, g, b, 1.0);
+    
+    
+    // test image    
+    float texelpd = float(textureSize(iChannel0, 0).y) / FOVy;
+    float lod = max(log2(texelpd * dedr), 0.0);
+    //fragColor = vec4(lod, lod, lod, 1.0);
+    fragColor = vec4(textureLod(iChannel0, fragCoord.xy/iResolution.xy, float(lod)).rgb, 1.0);
+    //fragColor = vec4(textureLod(iChannel0, fragCoord.xy/iResolution.xy, 0.0).rgb, 1.0);
+    
+    // scaling and clipping image to fovea
+    float ppdmax = 60.0;
+    float img_degrees = float(textureSize(iChannel0, 0).y)/ppdmax;
+    //fragColor = vec4(textureLod(iChannel0, FOVy/img_degrees * fragCoord.xy/iResolution.xy, lod).rgb, 1.0);
+    //if (FOVy/img_degrees * fragCoord.y/iResolution.y > 1.0 || FOVy/img_degrees * fragCoord.x/iResolution.x> 1.0) fragColor = vec4(0.0);
+}
